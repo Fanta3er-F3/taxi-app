@@ -3,117 +3,214 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Night Taxi Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         :root {
-            --main-color: #f39c12;
-            --bg-color: #121212;
-            --card-bg: #1e1e1e;
-            --text-color: #ffffff;
+            --accent: #f39c12;
+            --bg: #121212;
+            --card: #1e1e1e;
+            --text: #ffffff;
+            --text-dim: #b3b3b3;
         }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 0; overflow-x: hidden; }
-        
-        #map { height: 250px; width: 100%; border-bottom: 2px solid var(--main-color); }
-        
-        .app-container { padding: 15px; display: flex; flex-direction: column; gap: 12px; }
-        
-        .input-card { background: var(--card-bg); padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        
-        input { width: 100%; background: #2c2c2c; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; margin-top: 8px; box-sizing: border-box; }
-        
-        .price-box { background: var(--main-color); color: black; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; font-size: 20px; }
-        
-        .tariff-selector { display: flex; gap: 10px; margin-top: 10px; }
-        .tariff { flex: 1; padding: 10px; background: #2c2c2c; border-radius: 8px; text-align: center; border: 2px solid transparent; cursor: pointer; }
-        .tariff.active { border-color: var(--main-color); background: #3d3d3d; }
 
-        button#order-btn { 
-            background: var(--main-color); color: black; border: none; padding: 16px; 
-            border-radius: 12px; font-weight: bold; font-size: 18px; width: 100%;
-            transition: transform 0.1s;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0; padding: 0;
+            display: flex; flex-direction: column; height: 100vh;
         }
-        button#order-btn:active { transform: scale(0.97); }
+
+        #map { height: 40%; width: 100%; z-index: 1; }
+
+        .order-sheet {
+            flex: 1;
+            background: var(--card);
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
+            padding: 20px;
+            margin-top: -20px;
+            z-index: 2;
+            box-shadow: 0 -10px 20px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column; gap: 12px;
+        }
+
+        .input-group { position: relative; }
+        .input-group label { font-size: 12px; color: var(--accent); font-weight: bold; text-transform: uppercase; }
+        
+        input {
+            width: 100%;
+            background: #2c2c2c;
+            border: 1px solid #3d3d3d;
+            border-radius: 12px;
+            padding: 12px;
+            color: white;
+            font-size: 16px;
+            margin-top: 5px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        input:focus { border-color: var(--accent); }
+
+        .tariffs {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .tariff-card {
+            flex: 1;
+            background: #2c2c2c;
+            border: 2px solid transparent;
+            border-radius: 16px;
+            padding: 10px;
+            text-align: center;
+            transition: 0.2s;
+            cursor: pointer;
+        }
+
+        .tariff-card.active {
+            border-color: var(--accent);
+            background: rgba(243, 156, 18, 0.1);
+        }
+
+        .tariff-card .icon { font-size: 24px; display: block; }
+        .tariff-card .name { font-size: 14px; font-weight: bold; margin-top: 5px; }
+        .tariff-card .price-info { font-size: 12px; color: var(--text-dim); }
+
+        .total-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 16px;
+            margin-top: auto;
+        }
+
+        .total-price { font-size: 24px; font-weight: bold; color: var(--accent); }
+
+        button#main-btn {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 18px;
+            border-radius: 16px;
+            font-size: 18px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            transition: 0.1s;
+        }
+
+        button#main-btn:active { transform: scale(0.98); opacity: 0.9; }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
 
-<div class="app-container">
-    <div class="input-card">
-        <label>📍 Звідки:</label>
-        <input type="text" id="from" placeholder="Вулиця, будинок" onchange="updatePrice()">
-        
-        <label style="display:block; margin-top:10px;">🏁 Куди:</label>
-        <input type="text" id="to" placeholder="Куди їдемо?" onchange="updatePrice()">
+<div class="order-sheet">
+    <div class="input-group">
+        <label>📍 Місце посадки</label>
+        <input type="text" id="from" placeholder="Вулиця та номер будинку" oninput="updateUI()">
     </div>
 
-    <div class="input-card">
-        <label>🚖 Оберіть тариф:</label>
-        <div class="tariff-selector">
-            <div class="tariff active" onclick="setTariff('Standard', 15)">Standard</div>
-            <div class="tariff" onclick="setTariff('Comfort', 22)">Comfort</div>
-            <div class="tariff" onclick="setTariff('Volunteer', 0)">Волонтер</div>
+    <div class="input-group">
+        <label>🏁 Куди їдемо</label>
+        <input type="text" id="to" placeholder="Вулиця, район або назва" oninput="updateUI()">
+    </div>
+
+    <div class="tariffs">
+        <div class="tariff-card active" id="t-std" onclick="selectTariff('Standard', 18, 't-std')">
+            <span class="icon">🚕</span>
+            <span class="name">Стандарт</span>
+            <span class="price-info">18 ₴/км</span>
+        </div>
+        <div class="tariff-card" id="t-comf" onclick="selectTariff('Comfort', 25, 't-comf')">
+            <span class="icon">🏢</span>
+            <span class="name">Комфорт</span>
+            <span class="price-info">25 ₴/км</span>
+        </div>
+        <div class="tariff-card" id="t-vol" onclick="selectTariff('Volunteer', 0, 't-vol')">
+            <span class="icon">🛡️</span>
+            <span class="name">Волонтер</span>
+            <span class="price-info">Безкоштовно</span>
         </div>
     </div>
 
-    <div class="price-box" id="price-display">Приблизна ціна: 0 ₴</div>
+    <div class="input-group">
+        <input type="tel" id="phone" placeholder="Ваш номер телефону: +380..." value="+380">
+    </div>
 
-    <input type="tel" id="phone" placeholder="Ваш номер телефону">
-    
-    <button id="order-btn">ЗАМОВИТИ ТАКСІ</button>
+    <div class="total-box">
+        <span>До сплати:</span>
+        <span class="total-price" id="final-price">0 ₴</span>
+    </div>
+
+    <button id="main-btn">ПІДТВЕРДИТИ ЗАМОВЛЕННЯ</button>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
     let tg = window.Telegram.WebApp;
     tg.expand();
+    tg.MainButton.hide();
 
-    // Ініціалізація мапи (центр - Україна)
-    var map = L.map('map').setView([49.4229, 26.9871], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    // Ініціалізація мапи
+    var map = L.map('map', {zoomControl: false}).setView([49.4229, 26.9871], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
+    let currentRate = 18;
     let currentTariff = 'Standard';
-    let kmRate = 15;
+    let baseFare = 70;
 
-    function setTariff(name, rate) {
+    function selectTariff(name, rate, id) {
+        currentRate = rate;
         currentTariff = name;
-        kmRate = rate;
-        document.querySelectorAll('.tariff').forEach(t => t.classList.remove('active'));
-        event.currentTarget.classList.add('active');
-        updatePrice();
+        document.querySelectorAll('.tariff-card').forEach(c => c.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        updateUI();
     }
 
-    function updatePrice() {
-        // Проста симуляція розрахунку (у реальному житті треба API маршрутів)
-        let basePrice = 60; 
-        if (currentTariff === 'Volunteer') {
-            document.getElementById("price-display").innerText = "Ціна: Безкоштовно";
+    function updateUI() {
+        const from = document.getElementById('from').value;
+        const to = document.getElementById('to').value;
+        
+        // Симуляція розрахунку відстані (в реальності потрібен Geocoding API)
+        let distance = (from.length + to.length) / 4; 
+        if(distance < 2) distance = 0;
+        
+        let total = baseFare + (distance * currentRate);
+        if(currentTariff === 'Volunteer') total = 0;
+
+        document.getElementById('final-price').innerText = Math.round(total) + " ₴";
+    }
+
+    document.getElementById('main-btn').addEventListener('click', () => {
+        const from = document.getElementById('from').value;
+        const to = document.getElementById('to').value;
+        const phone = document.getElementById('phone').value;
+        const price = document.getElementById('final-price').innerText;
+
+        if(from.length < 5 || to.length < 5 || phone.length < 10) {
+            tg.showAlert("⚠️ Будь ласка, заповніть всі дані коректно!");
             return;
         }
-        let randomKm = Math.floor(Math.random() * 10) + 3; // Симулюємо відстань
-        let totalPrice = basePrice + (randomKm * kmRate);
-        document.getElementById("price-display").innerText = "Приблизна ціна: " + totalPrice + " ₴";
-    }
 
-    document.getElementById("order-btn").addEventListener("click", () => {
         const data = {
-            f: document.getElementById("from").value,
-            t: document.getElementById("to").value,
-            p: document.getElementById("phone").value,
-            price: document.getElementById("price-display").innerText,
+            f: from,
+            t: to,
+            p: phone,
+            price: price,
             tariff: currentTariff
         };
-
-        if(!data.f || !data.t || !data.p) {
-            tg.showAlert("Будь ласка, заповніть усі поля!");
-            return;
-        }
 
         tg.sendData(JSON.stringify(data));
     });
 </script>
-
 </body>
 </html>
