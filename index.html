@@ -1,33 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        body { font-family: sans-serif; background: #1c1c1c; color: white; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
-        input { padding: 12px; border-radius: 8px; border: 1px solid #444; background: #2c2c2c; color: white; }
-        button { background: #f39c12; color: black; border: none; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; margin-top: 10px; }
+        :root {
+            --main-color: #f39c12;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #ffffff;
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 0; overflow-x: hidden; }
+        
+        #map { height: 250px; width: 100%; border-bottom: 2px solid var(--main-color); }
+        
+        .app-container { padding: 15px; display: flex; flex-direction: column; gap: 12px; }
+        
+        .input-card { background: var(--card-bg); padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        
+        input { width: 100%; background: #2c2c2c; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; margin-top: 8px; box-sizing: border-box; }
+        
+        .price-box { background: var(--main-color); color: black; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; font-size: 20px; }
+        
+        .tariff-selector { display: flex; gap: 10px; margin-top: 10px; }
+        .tariff { flex: 1; padding: 10px; background: #2c2c2c; border-radius: 8px; text-align: center; border: 2px solid transparent; cursor: pointer; }
+        .tariff.active { border-color: var(--main-color); background: #3d3d3d; }
+
+        button#order-btn { 
+            background: var(--main-color); color: black; border: none; padding: 16px; 
+            border-radius: 12px; font-weight: bold; font-size: 18px; width: 100%;
+            transition: transform 0.1s;
+        }
+        button#order-btn:active { transform: scale(0.97); }
     </style>
 </head>
 <body>
-    <h2 style="text-align:center">Нічне таксі 🚕</h2>
-    <input type="text" id="from" placeholder="Звідки">
-    <input type="text" id="to" placeholder="Куди">
-    <input type="tel" id="phone" placeholder="Ваш телефон">
-    <button id="order">Замовити машину</button>
 
-    <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
-        document.getElementById("order").addEventListener("click", () => {
-            let data = {
-                f: document.getElementById("from").value,
-                t: document.getElementById("to").value,
-                p: document.getElementById("phone").value
-            };
-            tg.sendData(JSON.stringify(data));
-        });
-    </script>
+<div id="map"></div>
+
+<div class="app-container">
+    <div class="input-card">
+        <label>📍 Звідки:</label>
+        <input type="text" id="from" placeholder="Вулиця, будинок" onchange="updatePrice()">
+        
+        <label style="display:block; margin-top:10px;">🏁 Куди:</label>
+        <input type="text" id="to" placeholder="Куди їдемо?" onchange="updatePrice()">
+    </div>
+
+    <div class="input-card">
+        <label>🚖 Оберіть тариф:</label>
+        <div class="tariff-selector">
+            <div class="tariff active" onclick="setTariff('Standard', 15)">Standard</div>
+            <div class="tariff" onclick="setTariff('Comfort', 22)">Comfort</div>
+            <div class="tariff" onclick="setTariff('Volunteer', 0)">Волонтер</div>
+        </div>
+    </div>
+
+    <div class="price-box" id="price-display">Приблизна ціна: 0 ₴</div>
+
+    <input type="tel" id="phone" placeholder="Ваш номер телефону">
+    
+    <button id="order-btn">ЗАМОВИТИ ТАКСІ</button>
+</div>
+
+<script>
+    let tg = window.Telegram.WebApp;
+    tg.expand();
+
+    // Ініціалізація мапи (центр - Україна)
+    var map = L.map('map').setView([49.4229, 26.9871], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    let currentTariff = 'Standard';
+    let kmRate = 15;
+
+    function setTariff(name, rate) {
+        currentTariff = name;
+        kmRate = rate;
+        document.querySelectorAll('.tariff').forEach(t => t.classList.remove('active'));
+        event.currentTarget.classList.add('active');
+        updatePrice();
+    }
+
+    function updatePrice() {
+        // Проста симуляція розрахунку (у реальному житті треба API маршрутів)
+        let basePrice = 60; 
+        if (currentTariff === 'Volunteer') {
+            document.getElementById("price-display").innerText = "Ціна: Безкоштовно";
+            return;
+        }
+        let randomKm = Math.floor(Math.random() * 10) + 3; // Симулюємо відстань
+        let totalPrice = basePrice + (randomKm * kmRate);
+        document.getElementById("price-display").innerText = "Приблизна ціна: " + totalPrice + " ₴";
+    }
+
+    document.getElementById("order-btn").addEventListener("click", () => {
+        const data = {
+            f: document.getElementById("from").value,
+            t: document.getElementById("to").value,
+            p: document.getElementById("phone").value,
+            price: document.getElementById("price-display").innerText,
+            tariff: currentTariff
+        };
+
+        if(!data.f || !data.t || !data.p) {
+            tg.showAlert("Будь ласка, заповніть усі поля!");
+            return;
+        }
+
+        tg.sendData(JSON.stringify(data));
+    });
+</script>
+
 </body>
 </html>
