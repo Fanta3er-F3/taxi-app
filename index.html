@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #1c1c1c; color: white; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        input { padding: 12px; border-radius: 8px; border: 1px solid #444; background: #2c2c2c; color: white; }
+        button { background: #f39c12; color: black; border: none; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h2 style="text-align:center">Нічне таксі 🚕</h2>
+    <input type="text" id="from" placeholder="Звідки">
+    <input type="text" id="to" placeholder="Куди">
+    <input type="tel" id="phone" placeholder="Ваш телефон">
+    <button id="order">Замовити машину</button>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        document.getElementById("order").addEventListener("click", () => {
+            let data = {
+                f: document.getElementById("from").value,
+                t: document.getElementById("to").value,
+                p: document.getElementById("phone").value
+            };
+            tg.sendData(JSON.stringify(data));
+        });
+    </script>
+</body>
+</html>
