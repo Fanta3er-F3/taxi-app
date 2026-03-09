@@ -1,109 +1,320 @@
+<?php
+session_start();
+
+// Підключення до твоєї БД на InfinityFree
+$host = 'sql109.infinityfree.com';
+$user = 'if0_40511398';
+$pass = 'PEkIQDx7OBhLq';
+$dbname = 'if0_40511398_taxi';
+$conn = new mysqli($host, $user, $pass, $dbname);
+$conn->set_charset("utf8mb4");
+
+// Обробка створення замовлення
+if (isset($_POST['make_order'])) {
+    $tg_id = (int)$_POST['telegram_id'];
+    $name = htmlspecialchars($_POST['client_name']);
+    $phone = htmlspecialchars($_POST['phone']);
+    $coords_a = htmlspecialchars($_POST['coords_a']);
+    $coords_b = htmlspecialchars($_POST['coords_b']);
+    $price = (int)$_POST['final_price'];
+    $order_type = htmlspecialchars($_POST['order_type']); 
+    $comment = htmlspecialchars($_POST['comment']);
+
+    // Перевіряємо, чи є вже такий клієнт у базі. Якщо ні — створюємо.
+    $check = $conn->query("SELECT id FROM clients WHERE telegram_id=$tg_id");
+    if ($check->num_rows == 0) {
+        $conn->query("INSERT INTO clients (telegram_id, name, phone, password) VALUES ($tg_id, '$name', '$phone', 'tg_auth')");
+        $client_id = $conn->insert_id;
+    } else {
+        $client_id = $check->fetch_assoc()['id'];
+        // Оновлюємо номер телефону, якщо він змінився
+        $conn->query("UPDATE clients SET phone='$phone' WHERE id=$client_id");
+    }
+
+    // Записуємо замовлення
+    $stmt = $conn->prepare("INSERT INTO orders (client_id, order_type, phone, address, lat_lng, dropoff_address, dropoff_lat_lng, price, comment) VALUES (?, ?, ?, 'Точка на карті', ?, 'Точка на карті', ?, ?, ?)");
+    $stmt->bind_param("isssssis", $client_id, $order_type, $phone, $coords_a, $coords_b, $price, $comment);
+    
+    if ($stmt->execute()) {
+        header("Location: index.php?status=success"); 
+        exit;
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Uklon TG App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <style>
-        :root { --accent: #f39c12; --bg: #121212; --card: #1e1e1e; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; overflow: hidden; }
-        #map { height: 45vh; width: 100%; border-bottom: 2px solid var(--accent); }
-        .nav { display: flex; background: #222; position: sticky; top: 0; z-index: 100; }
-        .nav-item { flex: 1; padding: 15px; text-align: center; font-size: 14px; opacity: 0.6; }
-        .nav-item.active { opacity: 1; border-bottom: 3px solid var(--accent); color: var(--accent); }
-        .content { height: 55vh; overflow-y: auto; padding: 15px; box-sizing: border-box; }
-        .input-group { background: var(--card); padding: 15px; border-radius: 15px; margin-bottom: 10px; }
-        input { width: 100%; background: #2c2c2c; border: 1px solid #444; color: white; padding: 12px; border-radius: 10px; margin-top: 8px; box-sizing: border-box; }
-        .btn-order { background: var(--accent); color: black; border: none; width: 100%; padding: 16px; border-radius: 12px; font-weight: bold; font-size: 16px; margin-top: 10px; }
-        .history-card { background: var(--card); padding: 12px; border-radius: 10px; margin-bottom: 8px; font-size: 13px; border-left: 4px solid var(--accent); }
-        .gps-btn { position: absolute; bottom: 56vh; right: 15px; z-index: 500; background: white; border: none; border-radius: 50%; width: 45px; height: 45px; font-size: 22px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        :root { --main: #CBEA00; --bg: #121212; --sheet: #1c1c1e; --text: #fff; --gray: #8e8e93; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; overflow: hidden; }
+        
+        #map { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        
+        /* Нижня панель (Bottom Sheet) */
+        .bottom-sheet { position: absolute; bottom: 0; left: 0; width: 100%; background: var(--sheet); border-radius: 24px 24px 0 0; z-index: 1000; padding: 20px 20px 30px; box-sizing: border-box; box-shadow: 0 -5px 20px rgba(0,0,0,0.5); max-height: 85vh; overflow-y: auto; transition: transform 0.3s ease-out; }
+        .drag-handle { width: 40px; height: 5px; background: #3a3a3c; border-radius: 5px; margin: 0 auto 20px; }
+        
+        .user-greeting { text-align: center; color: var(--gray); font-size: 14px; margin-bottom: 15px; display: none; }
+
+        .input-box { background: #2c2c2e; padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; cursor: pointer; border: 1px solid transparent; transition: 0.2s;}
+        .input-box.active { border-color: var(--main); background: #22221a; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 15px; flex-shrink: 0; }
+        .dot-a { background: #00e676; }
+        .dot-b { background: #ff5252; }
+        .input-text { color: var(--text); font-size: 16px; flex-grow: 1; }
+        .input-placeholder { color: var(--gray); font-size: 16px; }
+
+        /* Тарифи */
+        .tariffs { display: none; gap: 15px; overflow-x: auto; margin-top: 15px; padding-bottom: 5px; }
+        .tariff-card { background: #2c2c2e; padding: 15px; border-radius: 16px; min-width: 100px; text-align: center; border: 2px solid transparent; cursor: pointer; transition: 0.2s; flex-shrink: 0;}
+        .tariff-card.active { border-color: var(--main); background: #2a2a1a; }
+        .t-img { font-size: 26px; margin-bottom: 5px; }
+        .t-name { font-size: 13px; font-weight: 500; margin-bottom: 5px; }
+        .t-price { font-size: 16px; font-weight: bold; }
+
+        /* Опції: Телефон, Ціна, Коментар */
+        .options-panel { display: none; margin-top: 20px; }
+        
+        .phone-input { width: 100%; background: #2c2c2e; border: 1px solid #444; padding: 15px; border-radius: 12px; color: white; font-size: 16px; margin-bottom: 15px; box-sizing: border-box; }
+        .phone-input:focus { outline: none; border-color: var(--main); }
+
+        .price-control { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px;}
+        .extra-btn { background: #2c2c2e; border: 1px solid #444; color: white; padding: 8px 15px; border-radius: 20px; font-size: 14px; cursor: pointer; transition: 0.2s; white-space: nowrap; margin-left: 8px;}
+        .extra-btn.active { background: var(--main); color: black; border-color: var(--main); font-weight: bold;}
+
+        .comment-input { width: 100%; background: #2c2c2e; border: none; padding: 15px; border-radius: 12px; color: white; font-size: 15px; margin-bottom: 15px; box-sizing: border-box; resize: none; font-family: inherit;}
+        .comment-input:focus { outline: 1px solid var(--main); }
+
+        .btn-main { width: 100%; padding: 18px; border-radius: 16px; background: var(--main); color: #000; font-size: 18px; font-weight: bold; border: none; cursor: pointer; display: none; box-shadow: 0 4px 15px rgba(203, 234, 0, 0.3);}
+        
+        .gps-btn { position: absolute; right: 20px; bottom: 350px; background: var(--sheet); width: 44px; height: 44px; border-radius: 50%; display: flex; justify-content: center; align-items: center; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 20px; cursor: pointer;}
+        
+        .custom-marker { width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        .marker-a { background: #00e676; }
+        .marker-b { background: #ff5252; }
+
+        /* Екран пошуку авто */
+        .full-screen { position: absolute; top:0; left:0; width:100%; height:100vh; background: var(--bg); z-index: 9999; padding: 30px; box-sizing: border-box; display: none; text-align: center;}
+        .spinner { width: 50px; height: 50px; border: 5px solid #2c2c2e; border-top: 5px solid var(--main); border-radius: 50%; animation: spin 1s linear infinite; margin: 40vh auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .btn-outline { background: transparent; color: var(--main); border: 1px solid var(--main); width: 100%; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; display: inline-block; text-decoration: none;}
     </style>
 </head>
 <body>
 
-<div id="map"></div>
-<button class="gps-btn" onclick="useGPS()">📍</button>
+    <?php if(isset($_GET['status']) && $_GET['status'] == 'success'): ?>
+    <div class="full-screen" style="display: block;">
+        <div class="spinner"></div>
+        <h2>Шукаємо авто...</h2>
+        <p style="color:var(--gray);">Замовлення передано в ефір водіям.</p>
+        <a href="index.php" class="btn-outline">Створити нове замовлення</a>
+        <button onclick="Telegram.WebApp.close()" class="btn-outline" style="border-color:#444; color:#fff; margin-top:10px;">Закрити додаток</button>
+    </div>
+    <?php endif; ?>
 
-<div class="nav">
-    <div class="nav-item active" onclick="tab('order', this)">Замовлення</div>
-    <div class="nav-item" onclick="tab('history', this)">Історія</div>
-    <div class="nav-item" onclick="tab('profile', this)">Профіль</div>
-</div>
+    <div id="map"></div>
+    <div class="gps-btn" onclick="locateMe()">📍</div>
 
-<div class="content">
-    <div id="tab-order">
-        <div class="input-group">
-            <input type="text" id="from" placeholder="📍 Звідки виїжджаємо?">
-            <input type="text" id="to" placeholder="🏁 Куди їдемо?">
-            <input type="tel" id="phone" value="+380">
+    <div class="bottom-sheet" id="bottom-sheet">
+        <div class="drag-handle"></div>
+        <div class="user-greeting" id="greeting"></div>
+        
+        <div id="step-address">
+            <div class="input-box active" id="box-a" onclick="setMode('A')">
+                <div class="dot dot-a"></div>
+                <div class="input-text" id="text-a"><span class="input-placeholder">Звідки вас забрати?</span></div>
+            </div>
+            <div class="input-box" id="box-b" onclick="setMode('B')">
+                <div class="dot dot-b"></div>
+                <div class="input-text" id="text-b"><span class="input-placeholder">Куди їдемо?</span></div>
+            </div>
         </div>
-        <button class="btn-order" onclick="confirmOrder()">ПІДТВЕРДИТИ ЗАМОВЛЕННЯ</button>
+
+        <div id="step-tariff" class="tariffs">
+            <div class="tariff-card active" onclick="selectTariff('taxi', 1, this)">
+                <div class="t-img">🚕</div>
+                <div class="t-name">Стандарт</div>
+                <div class="t-price" id="price-standard">0 ₴</div>
+            </div>
+            <div class="tariff-card" onclick="selectTariff('comfort', 1.3, this)">
+                <div class="t-img">🚘</div>
+                <div class="t-name">Комфорт</div>
+                <div class="t-price" id="price-comfort">0 ₴</div>
+            </div>
+            <div class="tariff-card" onclick="selectTariff('delivery', 1.2, this)">
+                <div class="t-img">🛍️</div>
+                <div class="t-name">Доставка</div>
+                <div class="t-price" id="price-delivery">0 ₴</div>
+            </div>
+        </div>
+
+        <form method="POST" id="order-form" onsubmit="return validateForm()">
+            <input type="hidden" name="telegram_id" id="telegram_id">
+            <input type="hidden" name="client_name" id="client_name">
+            
+            <div class="options-panel" id="options-panel">
+                <input type="tel" name="phone" id="phone" class="phone-input" placeholder="Ваш номер телефону (+380...)" required>
+
+                <div class="price-control">
+                    <span style="color:var(--gray); flex-shrink:0;">Додати чайові:</span>
+                    <div style="display:flex;">
+                        <div class="extra-btn" onclick="addExtra(0, this)">0 ₴</div>
+                        <div class="extra-btn" onclick="addExtra(10, this)">+10 ₴</div>
+                        <div class="extra-btn" onclick="addExtra(20, this)">+20 ₴</div>
+                        <div class="extra-btn" onclick="addExtra(50, this)">+50 ₴</div>
+                    </div>
+                </div>
+
+                <textarea name="comment" class="comment-input" rows="2" placeholder="Коментар водію (напр. з твариною)"></textarea>
+            </div>
+
+            <input type="hidden" name="coords_a" id="coords_a">
+            <input type="hidden" name="coords_b" id="coords_b">
+            <input type="hidden" name="final_price" id="final_price">
+            <input type="hidden" name="order_type" id="order_type" value="taxi">
+            <button type="submit" name="make_order" class="btn-main" id="btn-order">Замовити</button>
+        </form>
     </div>
 
-    <div id="tab-history" style="display:none;"></div>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Ініціалізація Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Розгортаємо на весь екран
+        tg.ready();
 
-    <div id="tab-profile" style="display:none; text-align:center;">
-        <img id="u-img" style="width:80px; border-radius:50%; border:2px solid var(--accent);">
-        <h3 id="u-name">Клієнт</h3>
-        <p id="u-stats">Поїздок: 0</p>
-    </div>
-</div>
+        // Отримуємо дані користувача з Telegram
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            const user = tg.initDataUnsafe.user;
+            document.getElementById('telegram_id').value = user.id;
+            document.getElementById('client_name').value = user.first_name;
+            
+            let greeting = document.getElementById('greeting');
+            greeting.style.display = 'block';
+            greeting.innerText = "Вітаємо, " + user.first_name + "!";
+        } else {
+            // Заглушка, якщо відкрито просто в браузері (для тестів)
+            document.getElementById('telegram_id').value = Math.floor(Math.random() * 100000);
+            document.getElementById('client_name').value = "Гість";
+        }
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-    let tg = window.Telegram.WebApp;
-    tg.expand();
-    const API = "https://carpet-ua.kesug.com/taxi/api.php";
+        // Ініціалізація карти (Хмельницький)
+        var map = L.map('map', { zoomControl: false }).setView([49.4229, 26.9871], 14);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
 
-    var map = L.map('map', {zoomControl: false}).setView([49.4229, 26.9871], 13);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
-    var marker = L.marker([49.4229, 26.9871], {draggable: true}).addTo(map);
+        var markerA = null, markerB = null, routeLine = null;
+        var currentMode = 'A', baseDistance = 0, currentBasePrice = 0, extraTips = 0;
+        var iconA = L.divIcon({className: 'custom-marker marker-a', iconSize: [24,24], iconAnchor: [12,12]});
+        var iconB = L.divIcon({className: 'custom-marker marker-b', iconSize: [24,24], iconAnchor: [12,12]});
 
-    function useGPS() {
-        navigator.geolocation.getCurrentPosition(p => {
-            const c = [p.coords.latitude, p.coords.longitude];
-            map.setView(c, 16); marker.setLatLng(c);
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('box-a').classList.remove('active');
+            document.getElementById('box-b').classList.remove('active');
+            document.getElementById('box-' + mode.toLowerCase()).classList.add('active');
+        }
+
+        // Клік по карті
+        map.on('click', function(e) {
+            var lat = e.latlng.lat, lng = e.latlng.lng;
+            var coordsStr = lat + "," + lng;
+
+            if (currentMode === 'A') {
+                if (markerA) map.removeLayer(markerA);
+                markerA = L.marker([lat, lng], {icon: iconA}).addTo(map);
+                document.getElementById('coords_a').value = coordsStr;
+                document.getElementById('text-a').innerHTML = "📍 Звідси";
+                setMode('B'); 
+            } else if (currentMode === 'B') {
+                if (markerB) map.removeLayer(markerB);
+                markerB = L.marker([lat, lng], {icon: iconB}).addTo(map);
+                document.getElementById('coords_b').value = coordsStr;
+                document.getElementById('text-b').innerHTML = "📍 Сюди";
+                document.getElementById('box-b').classList.remove('active');
+                drawRouteAndCalculate(); 
+            }
         });
-    }
 
-    function tab(name, el) {
-        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-        el.classList.add('active');
-        document.getElementById('tab-order').style.display = name === 'order' ? 'block' : 'none';
-        document.getElementById('tab-history').style.display = name === 'history' ? 'block' : 'none';
-        document.getElementById('tab-profile').style.display = name === 'profile' ? 'block' : 'none';
-        if(name === 'history' || name === 'profile') loadData();
-    }
+        // Прокладання маршруту (OSRM)
+        function drawRouteAndCalculate() {
+            if (!markerA || !markerB) return;
+            var cA = markerA.getLatLng(), cB = markerB.getLatLng();
+            var url = `https://router.project-osrm.org/route/v1/driving/${cA.lng},${cA.lat};${cB.lng},${cB.lat}?geometries=geojson`;
 
-    async function loadData() {
-        const r = await fetch(`${API}?action=get_data&user_id=${tg.initDataUnsafe.user.id}`);
-        const d = await r.json();
-        
-        document.getElementById('tab-history').innerHTML = d.history.map(h => `
-            <div class="history-card"><b>${h.created_at}</b><br>${h.from_addr} ➔ ${h.to_addr}<br>Ціна: ${h.price}</div>
-        `).join('') || "Історія порожня";
-        
-        document.getElementById('u-name').innerText = tg.initDataUnsafe.user.first_name;
-        document.getElementById('u-stats').innerText = `Поїздок: ${d.profile?.trips_count || 0}`;
-        if(tg.initDataUnsafe.user.photo_url) document.getElementById('u-img').src = tg.initDataUnsafe.user.photo_url;
-    }
+            fetch(url).then(res => res.json()).then(data => {
+                if(data.routes && data.routes.length > 0) {
+                    var latLngs = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    if(routeLine) map.removeLayer(routeLine);
+                    routeLine = L.polyline(latLngs, {color: 'var(--main)', weight: 5}).addTo(map);
+                    
+                    // Відступ знизу (paddingBottomRight), щоб панель не перекривала маршрут
+                    map.fitBounds(routeLine.getBounds(), {paddingTopLeft: [50, 50], paddingBottomRight: [50, 480]});
+                    
+                    baseDistance = data.routes[0].distance / 1000; 
+                    showUI();
+                }
+            });
+        }
 
-    async function confirmOrder() {
-        const o = {
-            user_id: tg.initDataUnsafe.user.id,
-            name: tg.initDataUnsafe.user.first_name,
-            f: document.getElementById('from').value,
-            t: document.getElementById('to').value,
-            p: document.getElementById('phone').value,
-            price: "180 ₴",
-            tariff: "Standard"
-        };
-        if(!o.f || !o.t) return tg.showAlert("Вкажіть маршрут!");
-        
-        await fetch(`${API}?action=create_order`, {method:'POST', body:JSON.stringify(o)});
-        tg.sendData(JSON.stringify(o));
-    }
-</script>
+        function showUI() {
+            var pStand = Math.round(70 + (baseDistance * 15));
+            document.getElementById('price-standard').innerText = pStand + " ₴";
+            document.getElementById('price-comfort').innerText = Math.round(pStand * 1.3) + " ₴";
+            document.getElementById('price-delivery').innerText = Math.round(pStand * 1.2) + " ₴";
+            
+            document.getElementById('step-tariff').style.display = 'flex';
+            document.getElementById('options-panel').style.display = 'block';
+            document.getElementById('btn-order').style.display = 'block';
+            
+            // Встановлюємо "Стандарт" за замовчуванням
+            selectTariff('taxi', 1, document.querySelector('.tariff-card')); 
+            
+            // Прокручуємо панель вниз, щоб було видно кнопку
+            setTimeout(() => {
+                document.getElementById('bottom-sheet').scrollTop = 500;
+            }, 100);
+        }
+
+        function selectTariff(type, multiplier, el) {
+            document.getElementById('order_type').value = type;
+            document.querySelectorAll('.tariff-card').forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+            
+            currentBasePrice = Math.round((70 + (baseDistance * 15)) * multiplier);
+            updateTotal();
+        }
+
+        function addExtra(amount, el) {
+            extraTips = amount;
+            document.querySelectorAll('.extra-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            updateTotal();
+        }
+
+        function updateTotal() {
+            var final = currentBasePrice + extraTips;
+            document.getElementById('final_price').value = final;
+            document.getElementById('btn-order').innerText = "Замовити за " + final + " ₴";
+        }
+
+        function locateMe() { 
+            map.locate({setView: true, maxZoom: 16}); 
+        }
+
+        function validateForm() {
+            var phone = document.getElementById('phone').value;
+            if (phone.length < 10) {
+                alert("Будь ласка, введіть коректний номер телефону, щоб водій міг з вами зв'язатися.");
+                return false;
+            }
+            return true;
+        }
+    </script>
 </body>
 </html>
